@@ -4,6 +4,8 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266HTTPClient.h>
+#include <ArduinoOTA.h>
+#include <ESP8266mDNS.h>
 
 #define LED_OFF HIGH
 #define LED_ON LOW
@@ -30,40 +32,42 @@ void toggle(uint8_t pin){
   digitalWrite(pin, !digitalRead(pin));
 }
 
-void playImperialMarch(){
-  roomba.fullMode();
-  uint8_t impNotes [] = { 31, 64 };
-  roomba.song(1, impNotes, sizeof(impNotes)/sizeof(impNotes[0]));
-  delay(100);
-  roomba.playSong(1);
-  delay(4000);
-  roomba.start();
-}
+void setupOTA(){
+  ArduinoOTA.setHostname("esp8266-roomba");
+  ArduinoOTA.setPassword("password");
+  ArduinoOTA.onStart([]() {
+    // TODO : Play update sound
+  });
 
+  ArduinoOTA.onEnd([]() {
+    // TODO : play update ended sound
+  });
 
-void setup() {
-  pinMode(LED, OUTPUT);
-  
-  // Connect to wifi
-  WiFi.mode(WIFI_STA); // Client only, no ap
-  WiFi.begin(SSID, PSK);
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    // Flash the LED 
+    toggle(LED);
+  });
 
-  // play a song on the roomba
-  roomba.start();
-  delay(500);
-  playImperialMarch();
-}
+  ArduinoOTA.onError([](ota_error_t error) {
+    // TODO : play error sound
 
+    /* Code is not used because the serial interface is connected directly to the roomba
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTaH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+    */
+  });
 
-void updateBatteryCharge(){
-  bool updated = roomba.getSensors(roomba.SensorBatteryCapacity, (uint8_t*) &battCappacity, 2);
-  updated = roomba.getSensors(roomba.SensorBatteryCharge, (uint8_t*) &battCharge, 2);
-  if(updated) {
-    battPercentage = (float) battCharge / (float) battCappacity * 100;
-    digitalWrite(LED, LED_ON);
-  } else {
-    digitalWrite(LED, LED_OFF);
-  }
+  ArduinoOTA.begin();
 }
 
 void restartIfWifiIsDiconnected(){
@@ -83,10 +87,45 @@ void restartIfWifiIsDiconnected(){
   }
 }
 
+void setup() {
+  pinMode(LED, OUTPUT);
+  
+  // Connect to wifi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, PSK);
+
+  restartIfWifiIsDiconnected();
+
+  roomba.start();
+  delay(500);
+
+  // Setup OTA
+  setupOTA();
+}
+
+
+void updateBatteryCharge(){
+  bool updated = roomba.getSensors(roomba.SensorBatteryCapacity, (uint8_t*) &battCappacity, 2);
+  updated = roomba.getSensors(roomba.SensorBatteryCharge, (uint8_t*) &battCharge, 2);
+  if(updated) {
+    battPercentage = (float) battCharge / (float) battCappacity * 100;
+    digitalWrite(LED, LED_ON);
+  } else {
+    digitalWrite(LED, LED_OFF);
+  }
+}
+
+
+
 void loop() {
   static int numloops = 0;
+
   restartIfWifiIsDiconnected();
+
+  ArduinoOTA.handle();
+
   timeClient.update();
+
   HTTPClient http;
   WiFiClient wifiClient;
 
