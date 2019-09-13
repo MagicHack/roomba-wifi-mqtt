@@ -4,8 +4,8 @@
  */
 
 // WIFI Credentials
-const char* const WIFI_SSID = "***REMOVED***";
-const char* const WIFI_PASSWORD  = "***REMOVED***";
+const char* const WIFI_SSID = "SSID";
+const char* const WIFI_PASSWORD  = "password";
 
 // MQTT credentials
 const char* const MQTT_HOST = "mymqtthost";
