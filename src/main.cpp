@@ -6,14 +6,14 @@
 #include <ESP8266HTTPClient.h>
 #include <ArduinoOTA.h>
 #include <ESP8266mDNS.h>
+// #include <PubSubClient.h>
 
 #define LED_OFF HIGH
 #define LED_ON LOW
 #define LED 2
 
-// Credentials for the network
-const String SSID = "***REMOVED***";
-const String PSK  = "***REMOVED***";
+// contains wifi and mqtt credentials
+#include "secrets.h"
 
 const int MAX_WIFI_TIMEOUT = 60 * 1000; // 60 secs
 
@@ -34,7 +34,7 @@ void toggle(uint8_t pin){
 
 void setupOTA(){
   ArduinoOTA.setHostname("esp8266-roomba");
-  ArduinoOTA.setPassword("password");
+  ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
     // TODO : Play update sound
   });
@@ -92,7 +92,7 @@ void setup() {
   
   // Connect to wifi
   WiFi.mode(WIFI_STA);
-  WiFi.begin(SSID, PSK);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   restartIfWifiIsDiconnected();
 
@@ -102,7 +102,6 @@ void setup() {
   // Setup OTA
   setupOTA();
 }
-
 
 void updateBatteryCharge(){
   bool updated = roomba.getSensors(roomba.SensorBatteryCapacity, (uint8_t*) &battCappacity, 2);
@@ -115,7 +114,53 @@ void updateBatteryCharge(){
   }
 }
 
+void playImperialMarch(){
+  // Notes taken from https://github.com/t0ph/ArduinoRoombaControl/blob/master/RoombaImperialMarch.ino
+  uint8_t a[] = { 55, 32, 55, 32, 55, 32, 51, 24, 58, 8, 55, 32, 51, 24, 58, 8, 55, 64 };
+  uint8_t b[] = { 62, 32, 62, 32, 62, 32, 63, 24, 58, 8, 54, 32, 51, 24, 58, 8, 55, 64 };
+  uint8_t c[] = { 3, 12, 67, 32, 55, 24, 55, 8, 67, 32, 66, 24, 65, 8, 64, 8, 63, 8, 64, 16, 30, 16, 56, 16, 61, 32 };
+  uint8_t d[] = { 4, 14, 60, 24, 59, 8, 58, 8, 57, 8, 58, 16, 10, 16, 52, 16, 54, 32, 51, 24, 58, 8, 55, 32, 51, 24, 58, 8, 55, 64 };
+  
+  roomba.start();
+  delay(50);  
+  // Load the song parts
+  roomba.song(1, a, sizeof(a)/2);
+  delay(50);
+  roomba.song(2, b, sizeof(b)/2);
+  delay(50);
+  roomba.song(3, c, sizeof(c)/2);
+  delay(50);
+  roomba.song(4, d, sizeof(d)/2);
+  delay(50);
 
+  roomba.safeMode();
+  delay(50);
+  // play the song
+  roomba.playSong(1);
+  delay(4000);
+  roomba.playSong(2);
+  delay(4000);
+  roomba.playSong(3);
+  delay(3500);
+  roomba.playSong(4);
+  delay(4000);
+}
+
+void startCleaning(){
+  roomba.start();
+  delay(50);
+  // roomba.safeMode(); // Probably only needed for series 600
+  // delay(50);
+  roomba.cover(); // Sends clean command
+}
+
+void stopCleaning(){
+  roomba.start();
+  delay(50);
+  // roomba.safeMode();
+  // delay(50);
+  roomba.coverAndDock(); // Send command to seek dock
+}
 
 void loop() {
   static int numloops = 0;
@@ -130,25 +175,28 @@ void loop() {
   WiFiClient wifiClient;
 
   updateBatteryCharge();
-  String host = "192.168.190.103";
-  int port = 8000;
-  http.begin(wifiClient, host, port, "Loop : " + 
+  static auto lastWifiUpdate = millis();
+  if(millis() - lastWifiUpdate > 10000) {
+    String host = "192.168.190.138";
+    int port = 8000;
+    http.begin(wifiClient, host, port, "Loop : " + String(numloops), false);
+    http.GET();
+    http.end();
+
+    http.begin(wifiClient, host, port, String(battPercentage) + "%", false);
+    http.GET();
+    http.end();
+
+    http.begin(wifiClient, host, port, String(battCharge) + "mAh", false);
+    http.GET();
+    http.end();
+
+    http.begin(wifiClient, host, port, String(battCappacity) + "mAh", false);
+    http.GET();
+    http.end();
+
+    lastWifiUpdate = millis();
+    numloops++;
+  }
   
-  String(numloops), false);
-  http.GET();
-  http.end();
-
-  http.begin(wifiClient, host, port, String(battPercentage) + "%", false);
-  http.GET();
-  http.end();
-
-  http.begin(wifiClient, host, port, String(battCharge) + "mAh", false);
-  http.GET();
-  http.end();
-
-  http.begin(wifiClient, host, port, String(battCappacity) + "mAh", false);
-  http.GET();
-  http.end();
-  delay(10000);
-  numloops++;
 }
