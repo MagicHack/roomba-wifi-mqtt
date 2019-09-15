@@ -3,19 +3,38 @@
 #include <ESP8266WiFi.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
-#include <ESP8266HTTPClient.h>
 #include <ArduinoOTA.h>
 #include <ESP8266mDNS.h>
-// #include <PubSubClient.h>
+#include <PubSubClient.h>
+
+// contains wifi and mqtt credentials
+#include "secrets.h"
 
 #define LED_OFF HIGH
 #define LED_ON LOW
 #define LED 2
 
-// contains wifi and mqtt credentials
-#include "secrets.h"
+const unsigned long MAX_WIFI_TIMEOUT = 15 * 1000; // 10 sec
+const unsigned long MAX_CLIENT_TIMEOUT = 120 * 1000;
+const unsigned long TIME_BETWEEN_MQTT_UPDATE = 10 * 1000;
 
-const int MAX_WIFI_TIMEOUT = 60 * 1000; // 60 secs
+// Put to false when connected to roomba to not send bogus data
+const bool PRINT_DEBUG = false;
+template<typename T>
+void printDebug(const T& val){
+  if(PRINT_DEBUG){
+    Serial.begin(115200);
+    Serial.print(val);
+  }
+}
+
+template<typename T>
+void printlnDebug(const T& val){
+  if(PRINT_DEBUG){
+    Serial.begin(115200);
+    Serial.println(val);
+  }
+}
 
 // Roomba declaration and sensor variables
 Roomba roomba(&Serial, Roomba::Baud115200);
@@ -23,10 +42,16 @@ uint16_t battCharge = 0;
 uint16_t battCappacity = 0;
 float battPercentage = 0;
 
-// NTP for time of the day
+uint8_t chargingState = 0;
+
+// NTP for time of the day - not really usefull now
 const auto utcOffsetInSeconds = -4 * 60 * 60; // UTC -4
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "north-america.pool.ntp.org", utcOffsetInSeconds);
+
+WiFiClient wifiClient;
+PubSubClient client(wifiClient);
+
 
 void toggle(uint8_t pin){
   digitalWrite(pin, !digitalRead(pin));
@@ -36,35 +61,37 @@ void setupOTA(){
   ArduinoOTA.setHostname("esp8266-roomba");
   ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
-    // TODO : Play update sound
+    printlnDebug("Starting OTA");
   });
 
   ArduinoOTA.onEnd([]() {
-    // TODO : play update ended sound
+    printlnDebug("OTA finished");
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    // Flash the LED 
-    toggle(LED);
+    int percentage = (float) progress / (float) total * 100;
+
+    if(!(percentage % 5)){
+      printlnDebug(percentage);
+    }
   });
 
   ArduinoOTA.onError([](ota_error_t error) {
-    // TODO : play error sound
-
-    /* Code is not used because the serial interface is connected directly to the roomba
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTaH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
+    if(PRINT_DEBUG){
+      Serial.begin(115200);
+      Serial.printf("Error[%u]: ", error);
     }
-    */
+    if (error == OTA_AUTH_ERROR) {
+      printlnDebug("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      printlnDebug("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      printlnDebug("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      printlnDebug("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      printlnDebug("End Failed");
+    }
   });
 
   ArduinoOTA.begin();
@@ -74,12 +101,13 @@ void restartIfWifiIsDiconnected(){
   // Restart the MCU if the wifi is disconnnected for too long
   static int lastWifiConnected = 0;
   if(!WiFi.isConnected()){
+    printlnDebug("Wifi disconnected");
     while(!WiFi.isConnected()){
       if(millis() - lastWifiConnected > MAX_WIFI_TIMEOUT) {
+        printlnDebug("Could not connect to wifi, restarting");
         ESP.restart();
       }
-      toggle(LED);
-      delay(50);
+      delay(100);
     }
   }
   else {
@@ -87,24 +115,32 @@ void restartIfWifiIsDiconnected(){
   }
 }
 
-void setup() {
-  pinMode(LED, OUTPUT);
-  
-  // Connect to wifi
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+void restartIfClientDisconnected() {
+  static int lastClientConnected = 0;
+  if(!client.connected()){
+    printlnDebug("Client disconnected");
+    while(!client.connected()){
+      if(millis() - lastClientConnected > MAX_CLIENT_TIMEOUT) {
+        printlnDebug("MQTT could not connect to server, restarting");
+        ESP.restart();
+      }
+      String clientId = "esp8266Roomba-";
+      clientId += String(random(0xFFFF), HEX);
+      client.connect(clientId.c_str(), MQTT_USER, MQTT_PASSWORD, "roomba/status", 0, 0, "disconnected");
+      client.subscribe("roomba/commands");
 
-  restartIfWifiIsDiconnected();
-
-  roomba.start();
-  delay(500);
-
-  // Setup OTA
-  setupOTA();
+      ArduinoOTA.handle();
+      delay(100);
+    }
+  }
+  else {
+    lastClientConnected = millis();
+  }
 }
 
 void updateBatteryCharge(){
   bool updated = roomba.getSensors(roomba.SensorBatteryCapacity, (uint8_t*) &battCappacity, 2);
+  delay(100);
   updated = roomba.getSensors(roomba.SensorBatteryCharge, (uint8_t*) &battCharge, 2);
   if(updated) {
     battPercentage = (float) battCharge / (float) battCappacity * 100;
@@ -112,6 +148,20 @@ void updateBatteryCharge(){
   } else {
     digitalWrite(LED, LED_OFF);
   }
+  delay(100);
+}
+
+void updateChargingState() {
+  roomba.getSensors(roomba.SensorChargingState, &chargingState, 2);
+  delay(100);
+}
+
+unsigned long countSongTimeMs(uint8_t* song, uint8_t numNotes){
+  unsigned long songTimeMs = 0;
+  for(int i = 1; i < numNotes; i += 2){
+    songTimeMs = song[i] * 16; // 16 ms ~= 1/64s
+  }
+  return songTimeMs;
 }
 
 void playImperialMarch(){
@@ -124,79 +174,168 @@ void playImperialMarch(){
   roomba.start();
   delay(50);  
   // Load the song parts
-  roomba.song(1, a, sizeof(a)/2);
-  delay(50);
-  roomba.song(2, b, sizeof(b)/2);
-  delay(50);
-  roomba.song(3, c, sizeof(c)/2);
-  delay(50);
-  roomba.song(4, d, sizeof(d)/2);
-  delay(50);
+  roomba.song(1, a, sizeof(a));
+  delay(100);
+  roomba.song(2, b, sizeof(b));
+  delay(100);
 
-  roomba.safeMode();
-  delay(50);
+
+  roomba.fullMode();
+  delay(100);
   // play the song
   roomba.playSong(1);
+  //delay(countSongTimeMs(a, sizeof(a)));
   delay(4000);
+
+  roomba.fullMode();
+  delay(100);
   roomba.playSong(2);
+  //delay(countSongTimeMs(b, sizeof(b)));
   delay(4000);
+
+  // Load 2 more songs, was not working loading them at the same time as the other
+  roomba.song(3, c, sizeof(c));
+  delay(100);
+  roomba.song(4, d, sizeof(d));
+  delay(100);
+
+  roomba.fullMode();
+  delay(100);
+
   roomba.playSong(3);
-  delay(3500);
+  //delay(countSongTimeMs(c, sizeof(c)));
+  delay(3300);
+
+  roomba.fullMode();
+  delay(100);
   roomba.playSong(4);
+  //delay(countSongTimeMs(d, sizeof(d)));
   delay(4000);
+  roomba.start();
 }
 
 void startCleaning(){
   roomba.start();
-  delay(50);
+  delay(100);
   // roomba.safeMode(); // Probably only needed for series 600
   // delay(50);
   roomba.cover(); // Sends clean command
+  client.publish("roomba/status", "cleaning");
+  printlnDebug("Started cleaning");
+  delay(100);
 }
 
-void stopCleaning(){
+void goToDock(){
   roomba.start();
   delay(50);
   // roomba.safeMode();
   // delay(50);
   roomba.coverAndDock(); // Send command to seek dock
+  client.publish("roomba/status", "dock");
+  printlnDebug("Going to dock");
+  delay(100);
+}
+
+void stop() {
+  roomba.start();
+  delay(100);
+  roomba.power();
+  delay(100);
+  printlnDebug("Stopping roomba");
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  printlnDebug("Received MQTT message");
+
+  String topicStr = String(topic);
+  String payloadStr = String();
+  
+
+  payloadStr.reserve(length);
+  for(unsigned int i = 0; i < length; i++){
+    payloadStr += payload[i];
+  }
+
+  printlnDebug("Topic : " + topicStr);
+  printlnDebug("Payload : " + payloadStr);
+
+  if(topicStr == "roomba/commands") {
+    if(payloadStr == "start") {
+      startCleaning();
+    } 
+    else if (payloadStr == "stop") {
+      goToDock();
+    }
+    else if(payloadStr == "power") {
+      stop();
+    }
+    else if(payloadStr == "imperial") {
+      playImperialMarch();
+    }
+    else if (payloadStr == "restart"){
+      ESP.restart();
+    }
+  }
+}
+
+void sendMqttInfo(){
+  client.publish("roomba/battery/percentage", String((int) battPercentage).c_str());
+  client.publish("roomba/battery/capacity", String(battCappacity).c_str());
+  client.publish("roomba/battery/charge", String(battCharge).c_str());
+  printlnDebug("Sent MQTT data");
+}
+
+void updateAllRoombaSensors(){
+  updateBatteryCharge();
+  updateChargingState();
+  printlnDebug("Updated sensors");
+}
+
+void setup() {
+  printlnDebug("ESP started");
+  pinMode(LED, OUTPUT);
+  
+  // Connect to wifi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  restartIfWifiIsDiconnected();
+
+  printDebug("WiFi connected\nIP : ");
+  printlnDebug(WiFi.localIP());
+
+  setupOTA();
+
+  // Setup MQTT client
+  client.setServer(MQTT_HOST, 1883);
+  client.setCallback(callback);
+  restartIfClientDisconnected();
+  printlnDebug("MQTT connected"); 
+  client.publish("online", "roombaEsp8266"); // Send on boot that we are online, mostly for debugging
+  delay(50);
+
+  roomba.start();
+
+  printlnDebug("End of setup");
 }
 
 void loop() {
-  static int numloops = 0;
+  
+  static unsigned long lastMqttUpdate = 0;
 
   restartIfWifiIsDiconnected();
+  restartIfClientDisconnected();
 
   ArduinoOTA.handle();
 
   timeClient.update();
 
-  HTTPClient http;
-  WiFiClient wifiClient;
+  client.loop();
 
-  updateBatteryCharge();
-  static auto lastWifiUpdate = millis();
-  if(millis() - lastWifiUpdate > 10000) {
-    String host = "192.168.190.138";
-    int port = 8000;
-    http.begin(wifiClient, host, port, "Loop : " + String(numloops), false);
-    http.GET();
-    http.end();
-
-    http.begin(wifiClient, host, port, String(battPercentage) + "%", false);
-    http.GET();
-    http.end();
-
-    http.begin(wifiClient, host, port, String(battCharge) + "mAh", false);
-    http.GET();
-    http.end();
-
-    http.begin(wifiClient, host, port, String(battCappacity) + "mAh", false);
-    http.GET();
-    http.end();
-
-    lastWifiUpdate = millis();
-    numloops++;
+  if(millis() - lastMqttUpdate > TIME_BETWEEN_MQTT_UPDATE) {
+    updateAllRoombaSensors();
+    sendMqttInfo();
+    lastMqttUpdate = millis();
   }
   
 }
