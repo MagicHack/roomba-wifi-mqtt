@@ -20,6 +20,7 @@ const unsigned long TIME_BETWEEN_MQTT_UPDATE = 10 * 1000;
 
 // Put to false when connected to roomba to not send bogus data
 const bool PRINT_DEBUG = false;
+
 template<typename T>
 void printDebug(const T& val){
   if(PRINT_DEBUG){
@@ -139,6 +140,8 @@ void restartIfClientDisconnected() {
 }
 
 void updateBatteryCharge(){
+  roomba.start();
+  delay(100);
   bool updated = roomba.getSensors(roomba.SensorBatteryCapacity, (uint8_t*) &battCappacity, 2);
   delay(100);
   updated = roomba.getSensors(roomba.SensorBatteryCharge, (uint8_t*) &battCharge, 2);
@@ -152,6 +155,8 @@ void updateBatteryCharge(){
 }
 
 void updateChargingState() {
+  roomba.start();
+  delay(100);
   roomba.getSensors(roomba.SensorChargingState, &chargingState, 2);
   delay(100);
 }
@@ -217,8 +222,8 @@ void playImperialMarch(){
 void startCleaning(){
   roomba.start();
   delay(100);
-  // roomba.safeMode(); // Probably only needed for series 600
-  // delay(50);
+  roomba.safeMode(); // Probably only needed for series 600
+  delay(100);
   roomba.cover(); // Sends clean command
   client.publish("roomba/status", "cleaning");
   printlnDebug("Started cleaning");
@@ -253,11 +258,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   payloadStr.reserve(length);
   for(unsigned int i = 0; i < length; i++){
-    payloadStr += payload[i];
+    payloadStr += (char) payload[i];
   }
 
   printlnDebug("Topic : " + topicStr);
   printlnDebug("Payload : " + payloadStr);
+
+  // client.publish("roomba/debug", payloadStr.c_str());
 
   if(topicStr == "roomba/commands") {
     if(payloadStr == "start") {
