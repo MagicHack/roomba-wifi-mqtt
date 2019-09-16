@@ -40,11 +40,13 @@ void printlnDebug(const T& val){
 
 // Roomba declaration and sensor variables
 Roomba roomba(&Serial, Roomba::Baud115200);
+
+uint8_t buffer2Bytes[2];
 uint16_t battCharge = 0;
 uint16_t battCappacity = 0;
 float battPercentage = 0;
-uint16_t battVoltageMV = 0;
 float battVoltage = 0;
+uint16_t battVoltageMV = 0;
 int16_t battCurrent = 0;
 uint8_t chargingState = 0;
 
@@ -142,18 +144,21 @@ void restartIfClientDisconnected() {
   }
 }
 
+uint16_t buffToInt(const uint8_t* buff) {
+  return (buff[0] << 8) | buff[1];
+}
+
 void updateBatteryCharge(){
   roomba.start();
   delay(100);
-  bool updated = roomba.getSensors(roomba.SensorBatteryCapacity, (uint8_t*) &battCappacity, 2);
-  delay(100);
-  updated = roomba.getSensors(roomba.SensorBatteryCharge, (uint8_t*) &battCharge, 2);
-  if(updated) {
-    battPercentage = (float) battCharge / (float) battCappacity * 100;
-    digitalWrite(LED, LED_ON);
-  } else {
-    digitalWrite(LED, LED_OFF);
+  if(roomba.getSensors(roomba.SensorBatteryCapacity, buffer2Bytes, 2)){
+    battCappacity = buffToInt(buffer2Bytes);
   }
+  delay(100);
+  if(roomba.getSensors(roomba.SensorBatteryCharge, buffer2Bytes, 2)){
+    battCharge = buffToInt(buffer2Bytes);
+  }
+  battPercentage = (float) battCharge / (float) battCappacity * 100;
   delay(100);
 }
 
@@ -167,11 +172,14 @@ void updateChargingState() {
 void updateVoltageCurrent(){
   roomba.start();
   delay(100);
-  if(roomba.getSensors(Roomba::SensorVoltage, (uint8_t*) &battVoltageMV, 2)){
+  if(roomba.getSensors(Roomba::SensorVoltage, buffer2Bytes, 2)){
+    battVoltageMV = buffToInt(buffer2Bytes);
     battVoltage = (float) battVoltageMV / 1000.0f;
   }
   delay(100);
-  roomba.getSensors(Roomba::SensorCurrent, (uint8_t*) &battCurrent, 2);
+  if(roomba.getSensors(Roomba::SensorCurrent, buffer2Bytes, 2)){
+    battCurrent = buffToInt(buffer2Bytes);
+  }
   delay(100);
 }
 
