@@ -14,7 +14,8 @@
 #define LED_ON LOW
 #define LED 2
 
-const unsigned long MAX_WIFI_TIMEOUT = 15 * 1000; // 10 sec
+// Time in ms
+const unsigned long MAX_WIFI_TIMEOUT = 15 * 1000;
 const unsigned long MAX_CLIENT_TIMEOUT = 120 * 1000;
 const unsigned long TIME_BETWEEN_MQTT_UPDATE = 10 * 1000;
 
@@ -232,9 +233,9 @@ void startCleaning(){
 
 void goToDock(){
   roomba.start();
-  delay(50);
-  // roomba.safeMode();
-  // delay(50);
+  delay(100);
+  roomba.safeMode();
+  delay(100);
   roomba.coverAndDock(); // Send command to seek dock
   client.publish("roomba/status", "dock");
   printlnDebug("Going to dock");
