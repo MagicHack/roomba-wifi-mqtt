@@ -43,7 +43,9 @@ Roomba roomba(&Serial, Roomba::Baud115200);
 uint16_t battCharge = 0;
 uint16_t battCappacity = 0;
 float battPercentage = 0;
-
+uint16_t battVoltageMV = 0;
+float battVoltage = 0;
+int16_t battCurrent = 0;
 uint8_t chargingState = 0;
 
 // NTP for time of the day - not really usefull now
@@ -159,6 +161,17 @@ void updateChargingState() {
   roomba.start();
   delay(100);
   roomba.getSensors(roomba.SensorChargingState, &chargingState, 2);
+  delay(100);
+}
+
+void updateVoltageCurrent(){
+  roomba.start();
+  delay(100);
+  if(roomba.getSensors(Roomba::SensorVoltage, (uint8_t*) &battVoltageMV, 2)){
+    battVoltage = (float) battVoltageMV / 1000.0f;
+  }
+  delay(100);
+  roomba.getSensors(Roomba::SensorCurrent, (uint8_t*) &battCurrent, 2);
   delay(100);
 }
 
@@ -291,6 +304,8 @@ void sendMqttInfo(){
   client.publish("roomba/battery/percentage", String((int) battPercentage).c_str());
   client.publish("roomba/battery/capacity", String(battCappacity).c_str());
   client.publish("roomba/battery/charge", String(battCharge).c_str());
+  client.publish("roomba/battery/voltage", String(battVoltage).c_str());
+  client.publish("roomba/battery/current", String(battCurrent).c_str());
   client.publish("roomba/charge", String(chargingState).c_str());
   printlnDebug("Sent MQTT data");
 }
@@ -298,6 +313,7 @@ void sendMqttInfo(){
 void updateAllRoombaSensors(){
   updateBatteryCharge();
   updateChargingState();
+  updateVoltageCurrent();
   printlnDebug("Updated sensors");
 }
 
@@ -343,6 +359,9 @@ void loop() {
   client.loop();
 
   if(millis() - lastMqttUpdate > TIME_BETWEEN_MQTT_UPDATE) {
+    /* TODO : add logic to keep the update delay the same, but 
+     * update each sensor at different times to no block the main loop
+     * for too long. */
     updateAllRoombaSensors();
     sendMqttInfo();
     lastMqttUpdate = millis();
