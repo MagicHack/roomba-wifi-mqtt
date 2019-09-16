@@ -149,14 +149,23 @@ uint16_t buffToInt(const uint8_t* buff) {
 }
 
 void updateBatteryCharge(){
+  const uint16_t THRESHOLD_ERROR = 5000; // The biggest battery is about 4000 mAh
   roomba.start();
   delay(100);
   if(roomba.getSensors(roomba.SensorBatteryCapacity, buffer2Bytes, 2)){
+    uint16_t oldVal = battCappacity;  // Fix for bug where the roomba return a super big value
     battCappacity = buffToInt(buffer2Bytes);
+    if(battCappacity > THRESHOLD_ERROR) {
+      battCappacity = oldVal;
+    }
   }
   delay(100);
   if(roomba.getSensors(roomba.SensorBatteryCharge, buffer2Bytes, 2)){
+    uint16_t oldVal = battCappacity; // Same fix
     battCharge = buffToInt(buffer2Bytes);
+    if(battCharge > THRESHOLD_ERROR) {
+      battCharge = oldVal;
+    }
   }
   battPercentage = (float) battCharge / (float) battCappacity * 100;
   delay(100);
