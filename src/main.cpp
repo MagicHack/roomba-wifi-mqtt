@@ -246,6 +246,7 @@ void stop() {
   delay(100);
   roomba.power();
   delay(100);
+  client.publish("roomba/status", "power");
   printlnDebug("Stopping roomba");
 }
 
@@ -270,7 +271,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if(payloadStr == "start") {
       startCleaning();
     } 
-    else if (payloadStr == "stop") {
+    else if (payloadStr == "stop") { 
       goToDock();
     }
     else if(payloadStr == "power") {
@@ -289,6 +290,7 @@ void sendMqttInfo(){
   client.publish("roomba/battery/percentage", String((int) battPercentage).c_str());
   client.publish("roomba/battery/capacity", String(battCappacity).c_str());
   client.publish("roomba/battery/charge", String(battCharge).c_str());
+  client.publish("roomba/charge", String(chargingState).c_str());
   printlnDebug("Sent MQTT data");
 }
 
