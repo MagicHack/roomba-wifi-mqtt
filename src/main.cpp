@@ -63,6 +63,11 @@ void toggle(uint8_t pin){
   digitalWrite(pin, !digitalRead(pin));
 }
 
+template<typename T>
+void publishDebug(const T& message){
+  client.publish("roomba/debug", String(message).c_str());
+}
+
 void setupOTA(){
   ArduinoOTA.setHostname("esp8266-roomba");
   ArduinoOTA.setPassword(OTA_PASSWORD);
@@ -156,6 +161,8 @@ void updateBatteryCharge(){
     uint16_t oldVal = battCappacity;  // Fix for bug where the roomba return a super big value
     battCappacity = buffToInt(buffer2Bytes);
     if(battCappacity > THRESHOLD_ERROR) {
+      String debugMessage = "Capacity : " + battCappacity; 
+      publishDebug(debugMessage);
       battCappacity = oldVal;
     }
   }
@@ -164,6 +171,8 @@ void updateBatteryCharge(){
     uint16_t oldVal = battCappacity; // Same fix
     battCharge = buffToInt(buffer2Bytes);
     if(battCharge > THRESHOLD_ERROR) {
+      String debugMessage = "Charge : " + battCharge; 
+      publishDebug(debugMessage);
       battCharge = oldVal;
     }
   }
@@ -172,22 +181,45 @@ void updateBatteryCharge(){
 }
 
 void updateChargingState() {
+  const uint8_t MAX_CHARGE_STATE = 5;
   roomba.start();
   delay(100);
-  roomba.getSensors(roomba.SensorChargingState, &chargingState, 2);
+  if(roomba.getSensors(roomba.SensorChargingState, buffer2Bytes, 1)){
+    uint8_t oldVal = chargingState;
+    chargingState = buffer2Bytes[0];
+    if(chargingState > MAX_CHARGE_STATE) {
+      String debugMessage = "Charging state : " + chargingState; 
+      publishDebug(debugMessage);
+      chargingState = oldVal;
+    }
+  }
   delay(100);
 }
 
 void updateVoltageCurrent(){
+  const float MAX_VOLTAGE = 25.0; // should never be greater than about 17V fully charged
+  const float MAX_CURRENT = 6000; // Uses about 2A in regular use
   roomba.start();
   delay(100);
   if(roomba.getSensors(Roomba::SensorVoltage, buffer2Bytes, 2)){
     battVoltageMV = buffToInt(buffer2Bytes);
+    float oldVal = battVoltage;
     battVoltage = (float) battVoltageMV / 1000.0f;
+    if(battVoltage > MAX_VOLTAGE){
+      String debugMessage = "Voltage : " + String(battVoltage); 
+      publishDebug(debugMessage);
+      battVoltage = oldVal;
+    }
   }
   delay(100);
   if(roomba.getSensors(Roomba::SensorCurrent, buffer2Bytes, 2)){
+    int16_t oldVal = battCurrent;
     battCurrent = buffToInt(buffer2Bytes);
+    if(abs(battCurrent) > MAX_CURRENT) {
+      String debugMessage = "Current : " + battCurrent; 
+      publishDebug(debugMessage);
+      battCurrent = oldVal;
+    }
   }
   delay(100);
 }
