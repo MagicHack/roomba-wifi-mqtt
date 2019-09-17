@@ -161,7 +161,7 @@ void updateBatteryCharge(){
     uint16_t oldVal = battCappacity;  // Fix for bug where the roomba return a super big value
     battCappacity = buffToInt(buffer2Bytes);
     if(battCappacity > THRESHOLD_ERROR) {
-      String debugMessage = "Capacity : " + battCappacity; 
+      String debugMessage = "Capacity : " + String(battCappacity); 
       publishDebug(debugMessage);
       battCappacity = oldVal;
     }
@@ -171,7 +171,7 @@ void updateBatteryCharge(){
     uint16_t oldVal = battCappacity; // Same fix
     battCharge = buffToInt(buffer2Bytes);
     if(battCharge > THRESHOLD_ERROR) {
-      String debugMessage = "Charge : " + battCharge; 
+      String debugMessage = "Charge : " + String(battCharge); 
       publishDebug(debugMessage);
       battCharge = oldVal;
     }
@@ -188,7 +188,7 @@ void updateChargingState() {
     uint8_t oldVal = chargingState;
     chargingState = buffer2Bytes[0];
     if(chargingState > MAX_CHARGE_STATE) {
-      String debugMessage = "Charging state : " + chargingState; 
+      String debugMessage = "Charging state : " + String(chargingState); 
       publishDebug(debugMessage);
       chargingState = oldVal;
     }
@@ -216,7 +216,7 @@ void updateVoltageCurrent(){
     int16_t oldVal = battCurrent;
     battCurrent = buffToInt(buffer2Bytes);
     if(abs(battCurrent) > MAX_CURRENT) {
-      String debugMessage = "Current : " + battCurrent; 
+      String debugMessage = "Current : " + String(battCurrent); 
       publishDebug(debugMessage);
       battCurrent = oldVal;
     }
